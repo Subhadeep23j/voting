@@ -1,5 +1,6 @@
-<?php 
+<?php
 session_start();
+require_once __DIR__ . '/../upload_helper.php';
 
 // Ensure admin is logged in
 if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
@@ -23,70 +24,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $party_name = $conn->real_escape_string($_POST['party_name']);
     $agent_email = $conn->real_escape_string($_POST['agent_email']);
     $dob = $conn->real_escape_string($_POST['dob']);
-    
+
     // Check if agent is at least 18 years old
     $birth_date = new DateTime($dob);
     $today = new DateTime();
     $age = $birth_date->diff($today)->y;
-    
+
     if ($age < 18) {
         $error_message = "Agent must be at least 18 years old to register. Current age: " . $age . " years.";
     }
-    
-    // Handle file uploads
-    $profile_picture_db = '';
-    $party_logo_db = '';
-    
-    // Create upload directory if it doesn't exist
-    $upload_dir_fs = '../uploads/';
+
+    // Handle file uploads via secure helper (optional fields)
+    $upload_dir_fs = realpath(__DIR__ . '/../uploads') ?: (__DIR__ . '/../uploads');
     $upload_dir_db = 'uploads/';
-    if (!is_dir($upload_dir_fs)) {
-        mkdir($upload_dir_fs, 0777, true);
-    }
-    
-    // Handle profile picture upload
-    if (isset($_FILES['profile_picture']) && $_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
-        $file_extension = pathinfo($_FILES['profile_picture']['name'], PATHINFO_EXTENSION);
-        $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif'];
-        
-        if (in_array(strtolower($file_extension), $allowed_extensions)) {
-            $profile_picture_name = 'profile_' . uniqid() . '.' . $file_extension;
-            $upload_path = $upload_dir_fs . $profile_picture_name;
-            
-            if (move_uploaded_file($_FILES['profile_picture']['tmp_name'], $upload_path)) {
-                $profile_picture_db = $upload_dir_db . $profile_picture_name;
-            } else {
-                $error_message = "Error uploading profile picture.";
-            }
-        } else {
-            $error_message = "Invalid file format for profile picture. Only JPG, JPEG, PNG, and GIF are allowed.";
-        }
-    }
-    
-    // Handle party logo upload
-    if (isset($_FILES['party_logo']) && $_FILES['party_logo']['error'] === UPLOAD_ERR_OK && empty($error_message)) {
-        $file_extension = pathinfo($_FILES['party_logo']['name'], PATHINFO_EXTENSION);
-        $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif'];
-        
-        if (in_array(strtolower($file_extension), $allowed_extensions)) {
-            $party_logo_name = 'logo_' . uniqid() . '.' . $file_extension;
-            $upload_path = $upload_dir_fs . $party_logo_name;
-            
-            if (move_uploaded_file($_FILES['party_logo']['tmp_name'], $upload_path)) {
-                $party_logo_db = $upload_dir_db . $party_logo_name;
-            } else {
-                $error_message = "Error uploading party logo.";
-            }
-        } else {
-            $error_message = "Invalid file format for party logo. Only JPG, JPEG, PNG, and GIF are allowed.";
-        }
-    }
-    
+    $profile_picture_db = secure_image_upload('profile_picture', $upload_dir_fs, $upload_dir_db, 'profile_', $error_message);
+    $party_logo_db     = secure_image_upload('party_logo', $upload_dir_fs, $upload_dir_db, 'logo_', $error_message);
+
     // Insert into database if no errors
     if (empty($error_message)) {
         $sql = "INSERT INTO agents (agent_name, agent_address, party_name, agent_email, dob, profile_picture, party_logo) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)";
-        
+        VALUES (?, ?, ?, ?, ?, ?, ?)";
+
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("sssssss", $agent_name, $agent_address, $party_name, $agent_email, $dob, $profile_picture_db, $party_logo_db);
 
@@ -101,6 +59,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -148,8 +107,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         @keyframes gradientShift {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
+
+            0%,
+            100% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
         }
 
         .header {
@@ -341,7 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             left: -100%;
             width: 100%;
             height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
             transition: left 0.5s;
         }
 
@@ -401,6 +367,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 opacity: 0;
                 transform: translateY(-20px);
             }
+
             to {
                 opacity: 1;
                 transform: translateY(0);
@@ -442,8 +409,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         @keyframes float {
-            0%, 100% { transform: translateY(0px) rotate(0deg); }
-            50% { transform: translateY(-20px) rotate(180deg); }
+
+            0%,
+            100% {
+                transform: translateY(0px) rotate(0deg);
+            }
+
+            50% {
+                transform: translateY(-20px) rotate(180deg);
+            }
         }
 
         /* Responsive Design */
@@ -452,22 +426,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 padding: 30px 20px;
                 margin: 10px;
             }
-            
+
             .header h2 {
                 font-size: 24px;
             }
-            
+
             .form-grid {
                 grid-template-columns: 1fr;
                 gap: 15px;
             }
-            
+
             .form-group input {
                 padding: 12px 15px 12px 45px;
             }
         }
     </style>
 </head>
+
 <body>
     <div class="floating-shapes">
         <div class="shape">
@@ -510,8 +485,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </label>
                     <div class="input-wrapper">
                         <i class="input-icon fas fa-user"></i>
-                        <input type="text" id="agent_name" name="agent_name" required 
-                               placeholder="Enter agent's full name">
+                        <input type="text" id="agent_name" name="agent_name" required
+                            placeholder="Enter agent's full name">
                     </div>
                 </div>
 
@@ -521,8 +496,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </label>
                     <div class="input-wrapper">
                         <i class="input-icon fas fa-envelope"></i>
-                        <input type="email" id="agent_email" name="agent_email" required 
-                               placeholder="Enter agent's email">
+                        <input type="email" id="agent_email" name="agent_email" required
+                            placeholder="Enter agent's email">
                     </div>
                 </div>
             </div>
@@ -533,8 +508,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </label>
                 <div class="input-wrapper">
                     <i class="input-icon fas fa-map-marker-alt"></i>
-                    <input type="text" id="agent_address" name="agent_address" required 
-                           placeholder="Enter agent's address">
+                    <input type="text" id="agent_address" name="agent_address" required
+                        placeholder="Enter agent's address">
                 </div>
             </div>
 
@@ -545,8 +520,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </label>
                     <div class="input-wrapper">
                         <i class="input-icon fas fa-flag"></i>
-                        <input type="text" id="party_name" name="party_name" required 
-                               placeholder="Enter party's name">
+                        <input type="text" id="party_name" name="party_name" required
+                            placeholder="Enter party's name">
                     </div>
                 </div>
 
@@ -564,8 +539,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <i class="fas fa-camera"></i> Profile Picture
                     </label>
                     <div class="file-upload-wrapper">
-                        <input type="file" id="profile_picture" name="profile_picture" 
-                               accept="image/*" onchange="previewImage(this, 'profile_preview')">
+                        <input type="file" id="profile_picture" name="profile_picture"
+                            accept="image/*" onchange="previewImage(this, 'profile_preview')">
                         <div class="file-upload-display">
                             <i class="fas fa-upload"></i>
                             <span class="file-upload-text">Choose profile picture...</span>
@@ -581,8 +556,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <i class="fas fa-image"></i> Party Logo
                     </label>
                     <div class="file-upload-wrapper">
-                        <input type="file" id="party_logo" name="party_logo" 
-                               accept="image/*" onchange="previewImage(this, 'logo_preview')">
+                        <input type="file" id="party_logo" name="party_logo"
+                            accept="image/*" onchange="previewImage(this, 'logo_preview')">
                         <div class="file-upload-display">
                             <i class="fas fa-upload"></i>
                             <span class="file-upload-text">Choose party logo...</span>
@@ -610,16 +585,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         function previewImage(input, previewId) {
             const preview = document.getElementById(previewId);
             const fileUploadText = input.parentElement.querySelector('.file-upload-text');
-            
+
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
-                
+
                 reader.onload = function(e) {
                     preview.src = e.target.result;
                     preview.style.display = 'block';
                     fileUploadText.textContent = input.files[0].name;
                 }
-                
+
                 reader.readAsDataURL(input.files[0]);
             }
         }
@@ -628,20 +603,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         document.addEventListener('DOMContentLoaded', function() {
             const form = document.getElementById('agentForm');
             const inputs = document.querySelectorAll('input[type="text"], input[type="email"]');
-            
+
             // Add floating label effect
             inputs.forEach(input => {
                 input.addEventListener('focus', function() {
                     this.parentElement.classList.add('focused');
                 });
-                
+
                 input.addEventListener('blur', function() {
                     if (this.value === '') {
                         this.parentElement.classList.remove('focused');
                     }
                 });
             });
-            
+
             // Form submission animation
             form.addEventListener('submit', function(e) {
                 const submitBtn = document.querySelector('.submit-btn');
@@ -652,16 +627,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Add particle effect on successful submission
         <?php if ($success_message): ?>
-        document.addEventListener('DOMContentLoaded', function() {
-            createConfetti();
-        });
+            document.addEventListener('DOMContentLoaded', function() {
+                createConfetti();
+            });
 
-        function createConfetti() {
-            const colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c'];
-            for (let i = 0; i < 50; i++) {
-                setTimeout(() => {
-                    const confetti = document.createElement('div');
-                    confetti.style.cssText = `
+            function createConfetti() {
+                const colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c'];
+                for (let i = 0; i < 50; i++) {
+                    setTimeout(() => {
+                        const confetti = document.createElement('div');
+                        confetti.style.cssText = `
                         position: fixed;
                         top: -10px;
                         left: ${Math.random() * 100}%;
@@ -672,16 +647,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         animation: confettiFall 3s linear forwards;
                         z-index: 1000;
                     `;
-                    document.body.appendChild(confetti);
-                    
-                    setTimeout(() => confetti.remove(), 3000);
-                }, i * 30);
-            }
-        }
+                        document.body.appendChild(confetti);
 
-        // Add confetti animation
-        const style = document.createElement('style');
-        style.textContent = `
+                        setTimeout(() => confetti.remove(), 3000);
+                    }, i * 30);
+                }
+            }
+
+            // Add confetti animation
+            const style = document.createElement('style');
+            style.textContent = `
             @keyframes confettiFall {
                 to {
                     transform: translateY(100vh) rotate(360deg);
@@ -689,8 +664,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
         `;
-        document.head.appendChild(style);
+            document.head.appendChild(style);
         <?php endif; ?>
     </script>
 </body>
+
 </html>

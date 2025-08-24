@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/config.php'; // sets timezone
 // Database configuration
 $db_host = 'localhost';
 $db_name = 'clg_ass';
@@ -17,7 +18,6 @@ if ($conn->connect_error) {
 try {
     $pdo = new PDO("mysql:host=$db_host;dbname=$db_name", $db_user, $db_pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch(PDOException $e) {
+} catch (PDOException $e) {
     die("Connection failed: " . $e->getMessage());
 }
-?>

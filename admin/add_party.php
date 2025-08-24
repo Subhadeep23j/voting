@@ -1,4 +1,4 @@
-<?php 
+<?php
 session_start();
 if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
     header("Location: admin_login.php");
@@ -19,6 +19,7 @@ try {
 
 $message = "";
 $error = "";
+require_once __DIR__ . '/../upload_helper.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $politician_name = $_POST['politician_name'];
@@ -28,79 +29,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $booth_name = $_POST['booth_name'];
     $booth_id = $_POST['booth_id'];
 
-    // Create uploads directory if it doesn't exist
-    $upload_dir_fs = '../uploads/';
+    // Secure uploads using helper
+    $upload_dir_fs = realpath(__DIR__ . '/../uploads') ?: (__DIR__ . '/../uploads');
     $upload_dir_db = 'uploads/';
-    if (!is_dir($upload_dir_fs)) {
-        if (!mkdir($upload_dir_fs, 0755, true)) {
-            $error = "Failed to create upload directory.";
-        }
+    $politician_image_path_db = secure_image_upload('politician_image', $upload_dir_fs, $upload_dir_db, 'politician_', $error);
+    $party_logo_path_db      = secure_image_upload('party_logo', $upload_dir_fs, $upload_dir_db, 'party_', $error);
+
+    if (!$error && (!$politician_image_path_db || !$party_logo_path_db)) {
+        $error = 'Both politician image and party logo are required.';
     }
 
-    // Check if files were uploaded without errors
-    if (!$error && isset($_FILES['politician_image']) && isset($_FILES['party_logo'])) {
-        $politician_image_error = $_FILES['politician_image']['error'];
-        $party_logo_error = $_FILES['party_logo']['error'];
-        
-        if ($politician_image_error === UPLOAD_ERR_OK && $party_logo_error === UPLOAD_ERR_OK) {
-            // Generate unique filenames to prevent conflicts
-            $politician_image_ext = pathinfo($_FILES['politician_image']['name'], PATHINFO_EXTENSION);
-            $party_logo_ext = pathinfo($_FILES['party_logo']['name'], PATHINFO_EXTENSION);
-            
-            $politician_image_name = 'politician_' . uniqid() . '.' . $politician_image_ext;
-            $party_logo_name = 'party_' . uniqid() . '.' . $party_logo_ext;
-            
-            $politician_image_path_fs = $upload_dir_fs . $politician_image_name;
-            $party_logo_path_fs = $upload_dir_fs . $party_logo_name;
-
-            $politician_image_path_db = $upload_dir_db . $politician_image_name;
-            $party_logo_path_db = $upload_dir_db . $party_logo_name;
-            
-            // Validate file types
-            $allowed_types = ['jpg', 'jpeg', 'png', 'gif'];
-            if (!in_array(strtolower($politician_image_ext), $allowed_types) || 
-                !in_array(strtolower($party_logo_ext), $allowed_types)) {
-                $error = "Only JPG, JPEG, PNG, and GIF files are allowed.";
-            }
-            
-            // Check file sizes (5MB max)
-            if (!$error && ($_FILES['politician_image']['size'] > 5242880 || $_FILES['party_logo']['size'] > 5242880)) {
-                $error = "File size must be less than 5MB.";
-            }
-            
-            // Move uploaded files
-            if (!$error) {
-                if (move_uploaded_file($_FILES['politician_image']['tmp_name'], $politician_image_path_fs) &&
-                    move_uploaded_file($_FILES['party_logo']['tmp_name'], $party_logo_path_fs)) {
-                    
-                    try {
-                        // Insert into DB
-                        $stmt = $pdo->prepare("INSERT INTO parties (politician_name, politician_image, party_id, age, party_name, party_logo, booth_name, booth_id)
-                                                VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                        $stmt->execute([$politician_name, $politician_image_path_db, $party_id, $age, $party_name, $party_logo_path_db, $booth_name, $booth_id]);
-                        
-                        $message = "Party added successfully!";
-                    } catch (PDOException $e) {
-                        $error = "Error adding party to database: " . $e->getMessage();
-                        // Clean up uploaded files if DB insert fails
-                        if (file_exists($politician_image_path_fs)) unlink($politician_image_path_fs);
-                        if (file_exists($party_logo_path_fs)) unlink($party_logo_path_fs);
-                    }
-                } else {
-                    $error = "Error uploading files. Please check directory permissions.";
-                }
-            }
-        } else {
-            $error = "File upload error. Please try again.";
+    if (!$error) {
+        try {
+            $stmt = $pdo->prepare("INSERT INTO parties (politician_name, politician_image, party_id, age, party_name, party_logo, booth_name, booth_id)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$politician_name, $politician_image_path_db, $party_id, $age, $party_name, $party_logo_path_db, $booth_name, $booth_id]);
+            $message = 'Party added successfully!';
+        } catch (PDOException $e) {
+            $error = 'Error adding party to database.';
         }
-    } else if (!$error) {
-        $error = "Please select both politician image and party logo.";
     }
 }
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -129,21 +83,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </script>
     <style>
         @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
         }
-        
+
         @keyframes slideUp {
-            from { transform: translateY(20px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
         }
-        
+
         @keyframes bounceGentle {
-            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-            40% { transform: translateY(-10px); }
-            60% { transform: translateY(-5px); }
+
+            0%,
+            20%,
+            50%,
+            80%,
+            100% {
+                transform: translateY(0);
+            }
+
+            40% {
+                transform: translateY(-10px);
+            }
+
+            60% {
+                transform: translateY(-5px);
+            }
         }
-        
+
         .file-preview {
             max-width: 100px;
             max-height: 100px;
@@ -151,16 +130,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-radius: 8px;
             border: 2px solid #e5e7eb;
         }
-        
+
         .bg-grid-slate-100 {
             background-image: url("data:image/svg+xml,%3csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3e%3cg fill='%23f1f5f9' fill-opacity='0.4' fill-rule='evenodd'%3e%3cpath d='m0 40l40-40h-40v40zm40 0v-40h-40l40 40z'/%3e%3c/g%3e%3c/svg%3e");
         }
     </style>
 </head>
+
 <body class="bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 min-h-screen">
     <!-- Background Pattern -->
     <div class="absolute inset-0 bg-grid-slate-100 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] -z-10"></div>
-    
+
     <!-- Floating Elements -->
     <div class="fixed inset-0 overflow-hidden pointer-events-none -z-10">
         <div class="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-300 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-bounce-gentle"></div>
@@ -216,8 +196,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     Politician Name
                                 </label>
                                 <input type="text" name="politician_name" required
-                                       class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
-                                       placeholder="Enter politician's full name">
+                                    class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
+                                    placeholder="Enter politician's full name">
                             </div>
 
                             <!-- Age -->
@@ -227,8 +207,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     Age
                                 </label>
                                 <input type="number" name="age" required min="18" max="100"
-                                       class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
-                                       placeholder="Enter age">
+                                    class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
+                                    placeholder="Enter age">
                             </div>
                         </div>
 
@@ -261,8 +241,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     Party ID
                                 </label>
                                 <input type="text" name="party_id" required
-                                       class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
-                                       placeholder="Enter unique party ID">
+                                    class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
+                                    placeholder="Enter unique party ID">
                             </div>
 
                             <!-- Party Name -->
@@ -272,8 +252,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     Party Name
                                 </label>
                                 <input type="text" name="party_name" required
-                                       class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-red-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
-                                       placeholder="Enter party name">
+                                    class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-red-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
+                                    placeholder="Enter party name">
                             </div>
                         </div>
 
@@ -306,8 +286,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     Booth Name
                                 </label>
                                 <input type="text" name="booth_name" required
-                                       class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-pink-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
-                                       placeholder="Enter booth name">
+                                    class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-pink-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
+                                    placeholder="Enter booth name">
                             </div>
 
                             <!-- Booth ID -->
@@ -317,15 +297,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     Booth ID
                                 </label>
                                 <input type="text" name="booth_id" required
-                                       class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-teal-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
-                                       placeholder="Enter booth ID">
+                                    class="w-full px-4 py-3 bg-gray-50 border-2 border-gray-200 rounded-xl focus:border-teal-500 focus:bg-white focus:outline-none transition duration-300 ease-in-out transform focus:scale-105"
+                                    placeholder="Enter booth ID">
                             </div>
                         </div>
 
                         <!-- Submit Button -->
                         <div class="pt-6">
                             <button type="submit" id="submitBtn"
-                                    class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-4 px-8 rounded-xl transition duration-300 ease-in-out transform hover:scale-105 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-300">
+                                class="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-4 px-8 rounded-xl transition duration-300 ease-in-out transform hover:scale-105 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-300">
                                 <i class="fas fa-plus-circle mr-3"></i>
                                 <span id="submitText">Add Party to System</span>
                                 <i class="fas fa-spinner fa-spin ml-3 hidden" id="loadingIcon"></i>
@@ -335,8 +315,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     <!-- Navigation -->
                     <div class="mt-8 pt-6 border-t border-gray-200">
-                        <a href="admin_dashboard.php" 
-                           class="inline-flex items-center px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition duration-300 ease-in-out transform hover:scale-105">
+                        <a href="admin_dashboard.php"
+                            class="inline-flex items-center px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition duration-300 ease-in-out transform hover:scale-105">
                             <i class="fas fa-arrow-left mr-2"></i>
                             Back to Dashboard
                         </a>
@@ -351,15 +331,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         function previewImage(input, previewId) {
             const preview = document.getElementById(previewId);
             const img = preview.querySelector('img');
-            
+
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
-                
+
                 reader.onload = function(e) {
                     img.src = e.target.result;
                     preview.classList.remove('hidden');
                 };
-                
+
                 reader.readAsDataURL(input.files[0]);
             }
         }
@@ -369,7 +349,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             const submitBtn = document.getElementById('submitBtn');
             const submitText = document.getElementById('submitText');
             const loadingIcon = document.getElementById('loadingIcon');
-            
+
             submitText.textContent = 'Processing...';
             loadingIcon.classList.remove('hidden');
             submitBtn.disabled = true;
@@ -387,7 +367,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     this.classList.add('border-green-500', 'bg-green-50');
                 }
             });
-            
+
             input.addEventListener('input', function() {
                 if (this.value.trim() !== '') {
                     this.classList.remove('border-red-500', 'bg-red-50');
@@ -402,7 +382,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             formElements.forEach((element, index) => {
                 element.style.opacity = '0';
                 element.style.transform = 'translateY(20px)';
-                
+
                 setTimeout(() => {
                     element.style.transition = 'all 0.5s ease-out';
                     element.style.opacity = '1';
@@ -412,4 +392,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         });
     </script>
 </body>
+
 </html>

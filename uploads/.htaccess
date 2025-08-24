@@ -1,0 +1,25 @@
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+
+RemoveHandler .php .phtml .php5 .php7 .php8
+RemoveType .php .phtml .php5 .php7 .php8
+
+<FilesMatch "\.(php|phtml|php[0-9]*)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+# Prevent execution of other potential script types
+<FilesMatch "\.(phar|phps|cgi|pl|py|sh)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+Options -ExecCGI
+
+# Force downloads to be treated as binary
+AddType application/octet-stream .php .phtml .php5 .php7 .php8
+
+# Disable directory listing
+Options -Indexes
