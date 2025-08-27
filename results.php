@@ -11,7 +11,7 @@ $total_votes = 0;
 $rows = [];
 $winner = null;
 $fetchError = '';
-// Voting schedule gating: voters see results only after end OR result_status=1; admins always.
+// Voting schedule gating: voters see results only after end AND published (result_status=1); admins always.
 $can_view_results = true; // default true if no schedule exists.
 try {
     $sch = $pdo->query('SELECT * FROM voting_setting ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
@@ -22,7 +22,7 @@ try {
         $now = time();
         $is_admin = isset($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true;
         if (!$is_admin) {
-            $can_view_results = ($now > $end_ts) || $result_status === 1; // after end OR manually published
+            $can_view_results = ($now > $end_ts) && $result_status === 1; // must be ended and published
         }
     }
 } catch (Throwable $e) {

@@ -58,7 +58,7 @@ try {
         }
     }
 } catch (Throwable $e) {
-    // If migration fails we continue; form will show error on save
+    echo "Table does not exist";
 }
 
 // Fetch current schedule (latest row)
@@ -66,16 +66,42 @@ $schedule = $pdo->query('SELECT * FROM voting_setting ORDER BY id DESC LIMIT 1')
 $message = '';
 $error = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Handle publish action (only allowed AFTER voting ends/forced closed)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['publish_now']) && $schedule) {
+    $start_ts = strtotime($schedule['start_date'] . ' ' . $schedule['start_time']);
+    $end_ts   = strtotime($schedule['end_date'] . ' ' . $schedule['end_time']);
+    $force_closed = !empty($schedule['force_closed']);
+    $hasEnded = $force_closed || time() > $end_ts;
+    if ($hasEnded) {
+        if ((int)$schedule['result_status'] === 0) {
+            try {
+                $stmt = $pdo->prepare('UPDATE voting_setting SET result_status=1 WHERE id=?');
+                $stmt->execute([$schedule['id']]);
+                $message = 'Results published for voters.';
+                $schedule = $pdo->query('SELECT * FROM voting_setting ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+            } catch (Throwable $e) {
+                $error = 'Failed to publish results.';
+            }
+        } else {
+            $message = 'Results already published.';
+        }
+    } else {
+        $error = 'Cannot publish before voting session ends.';
+    }
+}
+
+// Handle schedule save (no early publish checkbox anymore)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_schedule'])) {
     $start_date = trim($_POST['start_date'] ?? '');
     $start_time = trim($_POST['start_time'] ?? '');
     $end_date   = trim($_POST['end_date'] ?? '');
     $end_time   = trim($_POST['end_time'] ?? '');
-    $publish_results = isset($_POST['publish_results']) ? 1 : 0; // allow early viewing
-    $force_open      = isset($_POST['force_open']) ? 1 : 0;      // ignore start time gating
-    $force_closed    = isset($_POST['force_closed']) ? 1 : 0;    // treat as finished early
+    $force_open      = isset($_POST['force_open']) ? 1 : 0;
+    $force_closed    = isset($_POST['force_closed']) ? 1 : 0;
 
-    // Basic validation
+    // Preserve existing publication status; new schedules start unpublished
+    $existing_status = $schedule ? (int)$schedule['result_status'] : 0;
+
     if (!$start_date || !$start_time || !$end_date || !$end_time) {
         $error = 'All fields are required.';
     } else {
@@ -87,32 +113,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'End date/time must be after start date/time.';
         } else {
             try {
-                // Determine available columns (backwards compatibility)
                 $cols = $pdo->query("SHOW COLUMNS FROM voting_setting")->fetchAll(PDO::FETCH_COLUMN);
                 $hasForce = in_array('force_open', $cols, true) && in_array('force_closed', $cols, true);
                 if ($schedule) {
                     if ($hasForce) {
                         $stmt = $pdo->prepare('UPDATE voting_setting SET start_date=?, end_date=?, start_time=?, end_time=?, result_status=?, force_open=?, force_closed=? WHERE id=?');
-                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, $publish_results, $force_open, $force_closed, $schedule['id']]);
+                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, $existing_status, $force_open, $force_closed, $schedule['id']]);
                     } else {
                         $stmt = $pdo->prepare('UPDATE voting_setting SET start_date=?, end_date=?, start_time=?, end_time=?, result_status=? WHERE id=?');
-                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, $publish_results, $schedule['id']]);
+                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, $existing_status, $schedule['id']]);
                     }
                 } else {
                     if ($hasForce) {
                         $stmt = $pdo->prepare('INSERT INTO voting_setting (start_date, end_date, start_time, end_time, result_status, force_open, force_closed) VALUES (?,?,?,?,?,?,?)');
-                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, $publish_results, $force_open, $force_closed]);
+                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, 0, $force_open, $force_closed]);
                     } else {
                         $stmt = $pdo->prepare('INSERT INTO voting_setting (start_date, end_date, start_time, end_time, result_status) VALUES (?,?,?,?,?)');
-                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, $publish_results]);
+                        $stmt->execute([$start_date, $end_date, $start_time, $end_time, 0]);
                     }
                 }
                 $message = 'Voting schedule saved successfully.';
                 $schedule = $pdo->query('SELECT * FROM voting_setting ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
             } catch (Throwable $e) {
-                $error = 'Unable to save schedule.'; // generic
-                // Uncomment line below temporarily if you need to see the exact DB error while debugging
-                // $error .= ' (' . htmlspecialchars($e->getMessage()) . ')';
+                $error = 'Unable to save schedule.';
             }
         }
     }
@@ -330,10 +353,7 @@ if ($schedule) {
                         <input type="time" id="end_time" name="end_time" value="<?= htmlspecialchars($schedule['end_time'] ?? '') ?>" required>
                     </div>
                 </div>
-                <div class="switch">
-                    <input type="checkbox" id="publish_results" name="publish_results" value="1" <?= isset($schedule['result_status']) && $schedule['result_status'] ? 'checked' : '' ?>>
-                    <label for="publish_results" style="margin:0; font-weight:500;">Publish results early (before voting ends)</label>
-                </div>
+                <!-- Early publish option removed: results can only be published AFTER voting ends -->
                 <div class="switch">
                     <input type="checkbox" id="force_open" name="force_open" value="1" <?= isset($schedule['force_open']) && $schedule['force_open'] ? 'checked' : '' ?>>
                     <label for="force_open" style="margin:0; font-weight:500;">Force voting OPEN (ignore start time)</label>
@@ -344,11 +364,28 @@ if ($schedule) {
                 </div>
                 <div class="meta">Times use the server's timezone (<?= date_default_timezone_get() ?>). Ensure you align with this when setting schedule.</div>
                 <div class="actions">
-                    <button class="btn" type="submit"><i class="fas fa-save"></i> Save Schedule</button>
+                    <button class="btn" type="submit" name="save_schedule" value="1"><i class="fas fa-save"></i> Save Schedule</button>
                 </div>
             </form>
+            <?php
+            // Determine if ended to show publish control
+            if ($schedule) {
+                $end_ts = strtotime($schedule['end_date'] . ' ' . $schedule['end_time']);
+                $force_closed = !empty($schedule['force_closed']);
+                $hasEnded = $force_closed || time() > $end_ts;
+                if ($hasEnded) {
+                    if ((int)$schedule['result_status'] === 0) {
+                        echo '<form method="post" style="margin-top:1.5rem;">';
+                        echo '<button class="btn" style="background:linear-gradient(135deg,#16a34a,#15803d);box-shadow:0 8px 20px -6px rgba(16,185,129,.4)" name="publish_now" value="1" type="submit"><i class="fas fa-bullhorn"></i> Publish Results Now</button>';
+                        echo '</form>';
+                    } else {
+                        echo '<div style="margin-top:1.5rem;font-size:.9rem;padding:.9rem 1rem;background:#ecfdf5;border:1px solid #10b981;color:#065f46;border-radius:10px;"><i class="fas fa-check-circle"></i> Results have been published to voters.</div>';
+                    }
+                }
+            }
+            ?>
         </div>
-        <p style="font-size:0.75rem;color:#94a3b8;">Once the end time has passed, voters can only view the results page. Admin can always view live results regardless of schedule.</p>
+        <p style="font-size:0.75rem;color:#94a3b8;">After the end time (or forced close), click "Publish Results" to release them to voters. Admin can always view live results regardless of schedule.</p>
     </div>
 </body>
 

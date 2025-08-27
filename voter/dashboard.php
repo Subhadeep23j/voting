@@ -67,13 +67,14 @@ if ($schedule) {
             $voting_ended = true;
         }
     }
-    $results_published = (int)$schedule['result_status'] === 1 || $voting_ended || $force_closed; // early publish or after end/forced
+    // Results only visible to voters AFTER voting ended/forced AND published by admin (result_status=1)
+    $results_published = $voting_ended && (int)$schedule['result_status'] === 1;
 }
 
 // Handle logout
 if (isset($_GET['logout'])) {
     session_destroy();
-    header("Location: login.php");
+    header("Location: ../index.php");
     exit();
 }
 ?>
@@ -185,7 +186,7 @@ if (isset($_GET['logout'])) {
                 </div>
             </div>
         <?php endif; ?>
-        <?php if ($results_published && $voting_ended): ?>
+        <?php if ($results_published): ?>
             <div class="mb-10 bg-indigo-50 border-l-4 border-indigo-400 rounded-r-lg p-6 shadow-sm animate-slide-in-up">
                 <div class="flex items-center">
                     <div class="w-12 h-12 bg-indigo-500 rounded-full flex items-center justify-center mr-5">
